@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace PkoProxyClient
@@ -562,6 +563,11 @@ namespace PkoProxyClient
         private ushort m_session_key_length = 0;
         private byte[][] m_keys = new byte[4][];
 
+        private List<byte[]> _candidateSessionKeys = new List<byte[]>();
+        private bool _candidateSelected = false;
+        private ushort _cachedVersion = 0;
+        private string _cachedChapString = "";
+
         public PacketEncryptor()
         {
             for (int i = 0; i < 4; i++)
@@ -602,18 +608,57 @@ namespace PkoProxyClient
                 byte[] decryptedSessionKey = new byte[key.Length];
                 PkoDes.RunDes(PkoDes.DECRYPT, PkoDes.ECB, key, decryptedSessionKey, passwordKey);
 
-                Array.Copy(decryptedSessionKey, m_session_key, Math.Min(m_session_key.Length, decryptedSessionKey.Length));
-                m_session_key_length = 6;
-
-                PacketEncoder.init_Noise(noise, m_keys[0]);
-                PacketEncoder.init_Noise(noise, m_keys[1]);
-                PacketEncoder.init_Noise(noise, m_keys[2]);
-                PacketEncoder.init_Noise(noise, m_keys[3]);
+                InitWithSessionKey(version, chap_string, decryptedSessionKey);
             }
             else
             {
                 Array.Clear(m_session_key, 0, m_session_key.Length);
                 m_session_key_length = 0;
+            }
+        }
+
+        public void SetCandidates(List<byte[]> passwordCandidates, ushort version, string chapString, byte[] key)
+        {
+            _candidateSessionKeys.Clear();
+            _candidateSelected = false;
+            _cachedVersion = version;
+            _cachedChapString = chapString;
+
+            foreach (var pwd in passwordCandidates)
+            {
+                byte[] decSessionKey = new byte[key.Length];
+                PkoDes.RunDes(PkoDes.DECRYPT, PkoDes.ECB, key, decSessionKey, pwd);
+                _candidateSessionKeys.Add(decSessionKey);
+            }
+
+            // Default to first candidate
+            if (_candidateSessionKeys.Count > 0)
+            {
+                InitWithSessionKey(version, chapString, _candidateSessionKeys[0]);
+            }
+            m_enabled = true;
+        }
+
+        private void InitWithSessionKey(ushort version, string chapString, byte[] sessionKey)
+        {
+            Array.Copy(sessionKey, m_session_key, Math.Min(m_session_key.Length, sessionKey.Length));
+            m_session_key_length = 6;
+
+            if (!string.IsNullOrEmpty(chapString))
+            {
+                short key_data = (short)(version * version * 0x1232222);
+                byte[] chapBytes = Encoding.ASCII.GetBytes(chapString);
+                int last4 = 0;
+                if (chapBytes.Length >= 4)
+                {
+                    last4 = BitConverter.ToInt32(chapBytes, chapBytes.Length - 4);
+                }
+                int noise = key_data * last4;
+
+                PacketEncoder.init_Noise(noise, m_keys[0]);
+                PacketEncoder.init_Noise(noise, m_keys[1]);
+                PacketEncoder.init_Noise(noise, m_keys[2]);
+                PacketEncoder.init_Noise(noise, m_keys[3]);
             }
         }
 
@@ -629,6 +674,30 @@ namespace PkoProxyClient
 
         public void Decrypt(byte[] data, DecryptType type)
         {
+            if (m_enabled && !_candidateSelected && _candidateSessionKeys.Count > 1)
+            {
+                // Try each candidate session key
+                foreach (var sessionKey in _candidateSessionKeys)
+                {
+                    byte[] testData = (byte[])data.Clone();
+                    InitWithSessionKey(_cachedVersion, _cachedChapString, sessionKey);
+
+                    byte[] testSessionKey = new byte[m_session_key_length];
+                    Array.Copy(m_session_key, testSessionKey, m_session_key_length);
+                    PacketEncoder.encrypt_B(testData, testSessionKey, false);
+                    PacketEncoder.decrypt_Noise(type == DecryptType.CS ? m_keys[0] : m_keys[1], testData);
+
+                    ushort packetId = (ushort)((testData[0] << 8) | testData[1]);
+                    // Valid PKO packet IDs are normally between 1 and 2000
+                    if (packetId > 0 && packetId < 2000)
+                    {
+                        _candidateSelected = true;
+                        InitWithSessionKey(_cachedVersion, _cachedChapString, sessionKey);
+                        break;
+                    }
+                }
+            }
+
             byte[] key = type == DecryptType.CS ? m_keys[0] : m_keys[1];
 
             byte[] actualSessionKey = new byte[m_session_key_length];

@@ -28,6 +28,7 @@ namespace PkoProxyClient
                 int remotePort = 333;
                 bool protection = false;
                 string logFile = "proxy_packets.log";
+                string password = "";
 
                 for (int i = 1; i < args.Length; i++)
                 {
@@ -41,9 +42,11 @@ namespace PkoProxyClient
                         protection = true;
                     else if (args[i] == "--log-file" && i + 1 < args.Length)
                         logFile = args[++i];
+                    else if (args[i] == "--password" && i + 1 < args.Length)
+                        password = args[++i];
                 }
 
-                var proxy = new PkoProxy(localPort, remoteHost, remotePort, protection, logFile);
+                var proxy = new PkoProxy(localPort, remoteHost, remotePort, protection, logFile, password);
                 var cts = new CancellationTokenSource();
                 Console.CancelKeyPress += (sender, eventArgs) =>
                 {
@@ -94,6 +97,7 @@ namespace PkoProxyClient
             Console.WriteLine("      --remote-port <port>   Target server Port (default: 333)");
             Console.WriteLine("      --protection           Enable sequence number protection parsing");
             Console.WriteLine("      --log-file <file>      Log file path for dumped packets (default: proxy_packets.log)");
+            Console.WriteLine("      --password <password>  The account password to decrypt the session key correctly");
             Console.WriteLine();
             Console.WriteLine("  client  - Connect as a playable client to the server");
             Console.WriteLine("    Arguments:");

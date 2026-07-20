@@ -14,6 +14,7 @@ namespace PkoProxyClient
         public string Login { get; set; } = "";
         public byte[] PasswordBytes { get; set; } = Array.Empty<byte>();
         public ushort Version { get; set; } = 0;
+        public string PlaintextPassword { get; set; } = "";
     }
 
     public class PkoProxy
@@ -23,16 +24,18 @@ namespace PkoProxyClient
         private readonly int _remotePort;
         private readonly bool _protectionEnabled;
         private readonly string _logFilePath;
+        private readonly string _plaintextPassword;
         private TcpListener _listener;
         private int _connectionCounter = 0;
 
-        public PkoProxy(int localPort, string remoteHost, int remotePort, bool protectionEnabled, string logFilePath = "proxy_packets.log")
+        public PkoProxy(int localPort, string remoteHost, int remotePort, bool protectionEnabled, string logFilePath = "proxy_packets.log", string plaintextPassword = "")
         {
             _localPort = localPort;
             _remoteHost = remoteHost;
             _remotePort = remotePort;
             _protectionEnabled = protectionEnabled;
             _logFilePath = logFilePath;
+            _plaintextPassword = plaintextPassword;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
@@ -83,6 +86,7 @@ namespace PkoProxyClient
 
                         // Stateful crypto parameters for this connection
                         HandshakeState handshakeState = new HandshakeState();
+                        handshakeState.PlaintextPassword = _plaintextPassword;
                         PacketEncryptor encryptor = new PacketEncryptor();
 
                         // Task for Client to Server direction
@@ -153,7 +157,7 @@ namespace PkoProxyClient
                 pktReader.ReadUint32(); // Skip session
                 ushort packetId = pktReader.ReadUint16();
 
-                // Skip the 4-byte protection sequence number if it is present (which is always present on this server)
+                // Skip the 4-byte protection sequence number if it is present
                 uint sequence = pktReader.ReadUint32();
 
                 // Handle specific handshake packets to capture info
@@ -161,8 +165,7 @@ namespace PkoProxyClient
                 {
                     try
                     {
-                        // Structure of 431 under protection:
-                        // uint sequence (already read above), string nobill, string login, ushort pwd_len, bytes password, string mac, ushort flag (911), ushort version
+                        // Structure of 431: string nobill, string login, ushort pwd_len, bytes password, string mac, ushort flag, ushort version
                         string nobill = pktReader.ReadString();
                         string loginVal = pktReader.ReadString();
                         ushort pwdLen = pktReader.ReadUint16();
@@ -291,15 +294,37 @@ namespace PkoProxyClient
                             {
                                 lock (state)
                                 {
-                                    if (string.IsNullOrEmpty(state.Login) || state.PasswordBytes.Length == 0)
+                                    System.Collections.Generic.List<byte[]> candidates = new System.Collections.Generic.List<byte[]>();
+
+                                    // Candidate 1: pwdBytes from wire (24 bytes)
+                                    if (state.PasswordBytes.Length > 0)
                                     {
-                                        LogConsole($"[Connection #{connId}] [Warning] Crypto handshake enabled, but login/password was not captured!");
+                                        candidates.Add(state.PasswordBytes);
                                     }
-                                    else
+
+                                    // Candidate 2: pwdBytes truncated (23 bytes)
+                                    if (state.PasswordBytes.Length > 0)
                                     {
-                                        encryptor.Init(true, state.Version, state.ChapString, state.PasswordBytes, encryptionKey);
-                                        LogConsole($"[Connection #{connId}] [Success] Decryption engine initialized and enabled for all subsequent packets!");
+                                        byte[] trunc = new byte[state.PasswordBytes.Length - 1];
+                                        Array.Copy(state.PasswordBytes, trunc, trunc.Length);
+                                        candidates.Add(trunc);
                                     }
+
+                                    // Candidate 3: plaintext password MD5 hash (32 bytes)
+                                    if (!string.IsNullOrEmpty(state.PlaintextPassword))
+                                    {
+                                        string md5 = GetMD5Hash(state.PlaintextPassword);
+                                        candidates.Add(Encoding.ASCII.GetBytes(md5));
+                                    }
+
+                                    // Candidate 4: plaintext password itself
+                                    if (!string.IsNullOrEmpty(state.PlaintextPassword))
+                                    {
+                                        candidates.Add(Encoding.ASCII.GetBytes(state.PlaintextPassword));
+                                    }
+
+                                    encryptor.SetCandidates(candidates, state.Version, state.ChapString, encryptionKey);
+                                    LogConsole($"[Connection #{connId}] [Success] Decryption engine initialized with {candidates.Count} candidates!");
                                 }
                             }
                         }
@@ -315,6 +340,21 @@ namespace PkoProxyClient
 
                 // Forward unmodified packet to client
                 await clientStream.WriteAsync(packet, 0, packet.Length, cancellationToken);
+            }
+        }
+
+        public static string GetMD5Hash(string input)
+        {
+            using (System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create())
+            {
+                byte[] inputBytes = Encoding.ASCII.GetBytes(input);
+                byte[] hashBytes = md5.ComputeHash(inputBytes);
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < hashBytes.Length; i++)
+                {
+                    sb.Append(hashBytes[i].ToString("x2"));
+                }
+                return sb.ToString();
             }
         }
 
