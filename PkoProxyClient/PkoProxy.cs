@@ -12,7 +12,7 @@ namespace PkoProxyClient
     {
         public string ChapString { get; set; } = "";
         public string Login { get; set; } = "";
-        public string Password { get; set; } = "";
+        public byte[] PasswordBytes { get; set; } = Array.Empty<byte>();
         public ushort Version { get; set; } = 0;
     }
 
@@ -153,15 +153,10 @@ namespace PkoProxyClient
                         ushort flag = pktReader.ReadUint16();
                         ushort versionVal = pktReader.ReadUint16();
 
-                        // The password field sent on wire is actually PasswordEncoder.Encode(real_password, chap_string)
-                        // In ProxyServer, this encrypted chap string is used as m_password in CAccount.
-                        // So we save this as the password key for CDES.
-                        string passwordVal = Encoding.ASCII.GetString(pwdBytes);
-
                         lock (state)
                         {
                             state.Login = loginVal;
-                            state.Password = passwordVal;
+                            state.PasswordBytes = pwdBytes;
                             state.Version = versionVal;
                         }
 
@@ -243,7 +238,7 @@ namespace PkoProxyClient
                         ushort result = pktReader.ReadUint16();
                         LogConsole($"[Connection #{connId}] [S->C LoginResult] Result Code: {result}");
 
-                        if (result == 1) // result_success
+                        if (result == 0) // result_success is 0 in PKO
                         {
                             ushort keyLen = pktReader.ReadUint16();
                             byte[] encryptionKey = pktReader.ReadBytes(keyLen);
@@ -257,13 +252,13 @@ namespace PkoProxyClient
                             {
                                 lock (state)
                                 {
-                                    if (string.IsNullOrEmpty(state.Login) || string.IsNullOrEmpty(state.Password))
+                                    if (string.IsNullOrEmpty(state.Login) || state.PasswordBytes.Length == 0)
                                     {
                                         LogConsole($"[Connection #{connId}] [Warning] Crypto handshake enabled, but login/password was not captured!");
                                     }
                                     else
                                     {
-                                        encryptor.Init(true, state.Version, state.ChapString, state.Password, encryptionKey);
+                                        encryptor.Init(true, state.Version, state.ChapString, state.PasswordBytes, encryptionKey);
                                         LogConsole($"[Connection #{connId}] [Success] Decryption engine initialized and enabled for all subsequent packets!");
                                     }
                                 }

@@ -572,7 +572,7 @@ namespace PkoProxyClient
 
         public bool Enabled => m_enabled;
 
-        public void Init(bool enabled, ushort version, string chap_string, string password, byte[] key)
+        public void Init(bool enabled, ushort version, string chap_string, byte[] password, byte[] key)
         {
             m_enabled = enabled;
             if (m_enabled)
@@ -589,7 +589,7 @@ namespace PkoProxyClient
                 int noise = key_data * last4;
 
                 // CDES::RunDes (DECRYPT, ECB)
-                byte[] passwordKey = Encoding.ASCII.GetBytes(password);
+                byte[] passwordKey = password;
                 byte[] decryptedSessionKey = new byte[key.Length];
                 PkoDes.RunDes(PkoDes.DECRYPT, PkoDes.ECB, key, decryptedSessionKey, passwordKey);
 

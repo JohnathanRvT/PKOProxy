@@ -17,7 +17,7 @@ namespace PkoProxyClient
         private PacketEncryptor _encryptor;
         private string _chapString = "";
         private string _login = "";
-        private string _password = "";
+        private byte[] _passwordBytes = Array.Empty<byte>();
         private bool _connected = false;
         private uint _session = 0x80000000;
         private CancellationTokenSource _cts;
@@ -123,8 +123,8 @@ namespace PkoProxyClient
                     else if (packetId == 931) // LoginResult
                     {
                         ushort result = pktReader.ReadUint16();
-                        LogConsole($"[Login] Result: {result} ({(result == 1 ? "Success" : "Failed")})");
-                        if (result == 1)
+                        LogConsole($"[Login] Result: {result} ({(result == 0 ? "Success" : "Failed")})");
+                        if (result == 0) // result_success is 0 in PKO
                         {
                             ushort keyLen = pktReader.ReadUint16();
                             byte[] encryptionKey = pktReader.ReadBytes(keyLen);
@@ -133,7 +133,7 @@ namespace PkoProxyClient
 
                             if (commEncryption)
                             {
-                                _encryptor.Init(true, _version, _chapString, _password, encryptionKey);
+                                _encryptor.Init(true, _version, _chapString, _passwordBytes, encryptionKey);
                                 LogConsole("[Crypto] Encryption initialized and active for this session!");
                             }
                         }
@@ -194,8 +194,7 @@ namespace PkoProxyClient
                     string rawPassword = parts[2];
 
                     // Cache password in the encoded form used inside proxy server
-                    byte[] encodedPwdBytes = PasswordEncoder.Encode(rawPassword, _chapString);
-                    _password = Encoding.ASCII.GetString(encodedPwdBytes);
+                    _passwordBytes = PasswordEncoder.Encode(rawPassword, _chapString);
 
                     await SendLoginAsync(_login, rawPassword);
                 }
@@ -226,13 +225,10 @@ namespace PkoProxyClient
             writer.WriteUint32(_session);
             writer.WriteUint16(431); // Packet ID
 
-            // Encode password using password encoder
-            byte[] pwdBytes = PasswordEncoder.Encode(rawPassword, _chapString);
-
             writer.WriteString(""); // m_nobill
             writer.WriteString(user); // m_login
-            writer.WriteUint16((ushort)pwdBytes.Length);
-            writer.WriteBytes(pwdBytes);
+            writer.WriteUint16((ushort)_passwordBytes.Length);
+            writer.WriteBytes(_passwordBytes);
             writer.WriteString("00:11:22:33:44:55"); // mac address
             writer.WriteUint32(0x0100007F); // localhost IP (127.0.0.1)
             writer.WriteUint16(0); // flag
