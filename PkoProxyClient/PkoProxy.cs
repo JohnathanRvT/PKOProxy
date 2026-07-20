@@ -153,19 +153,22 @@ namespace PkoProxyClient
                 pktReader.ReadUint32(); // Skip session
                 ushort packetId = pktReader.ReadUint16();
 
+                // Skip the 4-byte protection sequence number if it is present (which is always present on this server)
+                uint sequence = pktReader.ReadUint32();
+
                 // Handle specific handshake packets to capture info
                 if (packetId == 431) // AccountLogin
                 {
                     try
                     {
-                        // Structure of 431: string nobill, string login, ushort pwd_len, bytes password, string mac, uint32 ip, ushort flag, ushort version
+                        // Structure of 431 under protection:
+                        // uint sequence (already read above), string nobill, string login, ushort pwd_len, bytes password, string mac, ushort flag (911), ushort version
                         string nobill = pktReader.ReadString();
                         string loginVal = pktReader.ReadString();
                         ushort pwdLen = pktReader.ReadUint16();
                         byte[] pwdBytes = pktReader.ReadBytes(pwdLen);
                         string mac = pktReader.ReadString();
-                        uint ip = pktReader.ReadUint32();
-                        ushort flag = pktReader.ReadUint16();
+                        ushort flag = pktReader.ReadUint16(); // always 911
                         ushort versionVal = pktReader.ReadUint16();
 
                         StringBuilder pwdHex = new StringBuilder();
