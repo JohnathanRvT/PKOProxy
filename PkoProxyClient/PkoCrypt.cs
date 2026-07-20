@@ -577,7 +577,8 @@ namespace PkoProxyClient
             m_enabled = enabled;
             if (m_enabled)
             {
-                int key_data = version * version * 0x1232222;
+                // MSVC C++ short int is 16-bit signed integer
+                short key_data = (short)(version * version * 0x1232222);
 
                 // Grab last 4 bytes of chap_string
                 byte[] chapBytes = Encoding.ASCII.GetBytes(chap_string);

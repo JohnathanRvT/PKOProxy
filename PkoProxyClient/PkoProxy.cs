@@ -115,6 +115,13 @@ namespace PkoProxyClient
                 byte[] packet = await reader.ReadPacketAsync(cancellationToken);
                 if (packet == null) break;
 
+                // Handle 2-byte heartbeat packet
+                if (packet.Length == 2)
+                {
+                    await serverStream.WriteAsync(packet, 0, packet.Length, cancellationToken);
+                    continue;
+                }
+
                 // Parse/Inspect packet copy before forwarding
                 byte[] copy = (byte[])packet.Clone();
                 ushort packetSize = (ushort)((copy[0] << 8) | copy[1]);
@@ -184,6 +191,13 @@ namespace PkoProxyClient
             {
                 byte[] packet = await reader.ReadPacketAsync(cancellationToken);
                 if (packet == null) break;
+
+                // Handle 2-byte heartbeat packet
+                if (packet.Length == 2)
+                {
+                    await clientStream.WriteAsync(packet, 0, packet.Length, cancellationToken);
+                    continue;
+                }
 
                 // Parse/Inspect packet copy before forwarding
                 byte[] copy = (byte[])packet.Clone();
