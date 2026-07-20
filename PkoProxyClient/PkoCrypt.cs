@@ -589,8 +589,16 @@ namespace PkoProxyClient
                 }
                 int noise = key_data * last4;
 
-                // CDES::RunDes (DECRYPT, ECB)
+                // Match C++ readString() truncation (which discards the last byte of the written byte array)
                 byte[] passwordKey = password;
+                if (passwordKey.Length > 0)
+                {
+                    byte[] truncated = new byte[passwordKey.Length - 1];
+                    Array.Copy(passwordKey, truncated, truncated.Length);
+                    passwordKey = truncated;
+                }
+
+                // CDES::RunDes (DECRYPT, ECB)
                 byte[] decryptedSessionKey = new byte[key.Length];
                 PkoDes.RunDes(PkoDes.DECRYPT, PkoDes.ECB, key, decryptedSessionKey, passwordKey);
 
