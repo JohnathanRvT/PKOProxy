@@ -442,19 +442,29 @@ namespace PkoProxyClient
                     for (int i = 0; i < key_len; ++i)
                     {
                         int idx = j * key_len + i;
-                        byte k = key[i];
+                        sbyte k = (sbyte)key[i];
                         int shift = k % key_len + 1;
-                        src[idx] ^= k;
-                        src[idx] = (byte)((src[idx] << shift) | (src[idx] >> (8 - shift)));
+                        int realShift = ((byte)shift) & 7;
+
+                        src[idx] ^= (byte)k;
+                        if (realShift != 0)
+                        {
+                            src[idx] = (byte)((src[idx] << realShift) | (src[idx] >> (8 - realShift)));
+                        }
                     }
                 }
                 for (int i = 0; i < rcnt; ++i)
                 {
                     int idx = loop * key_len + i;
-                    byte k = key[i];
+                    sbyte k = (sbyte)key[i];
                     int shift = k % key_len + 1;
-                    src[idx] ^= k;
-                    src[idx] = (byte)((src[idx] << shift) | (src[idx] >> (8 - shift)));
+                    int realShift = ((byte)shift) & 7;
+
+                    src[idx] ^= (byte)k;
+                    if (realShift != 0)
+                    {
+                        src[idx] = (byte)((src[idx] << realShift) | (src[idx] >> (8 - realShift)));
+                    }
                 }
             }
             else
@@ -464,19 +474,29 @@ namespace PkoProxyClient
                     for (int i = 0; i < key_len; ++i)
                     {
                         int idx = j * key_len + i;
-                        byte k = key[i];
+                        sbyte k = (sbyte)key[i];
                         int shift = k % key_len + 1;
-                        src[idx] = (byte)((src[idx] >> shift) | (src[idx] << (8 - shift)));
-                        src[idx] ^= k;
+                        int realShift = ((byte)shift) & 7;
+
+                        if (realShift != 0)
+                        {
+                            src[idx] = (byte)((src[idx] >> realShift) | (src[idx] << (8 - realShift)));
+                        }
+                        src[idx] ^= (byte)k;
                     }
                 }
                 for (int i = 0; i < rcnt; ++i)
                 {
                     int idx = loop * key_len + i;
-                    byte k = key[i];
+                    sbyte k = (sbyte)key[i];
                     int shift = k % key_len + 1;
-                    src[idx] = (byte)((src[idx] >> shift) | (src[idx] << (8 - shift)));
-                    src[idx] ^= k;
+                    int realShift = ((byte)shift) & 7;
+
+                    if (realShift != 0)
+                    {
+                        src[idx] = (byte)((src[idx] >> realShift) | (src[idx] << (8 - realShift)));
+                    }
+                    src[idx] ^= (byte)k;
                 }
             }
             return true;
