@@ -122,6 +122,14 @@ namespace PkoProxyClient
                     continue;
                 }
 
+                // Log raw ciphertext header/ID bytes for diagnosis
+                StringBuilder rawHex = new StringBuilder();
+                for (int i = 0; i < Math.Min(16, packet.Length); i++)
+                {
+                    rawHex.Append($"{packet[i]:X2} ");
+                }
+                LogConsole($"[Connection #{connId}] [Raw C->S Ciphertext] Size: {packet.Length} | Bytes: {rawHex}");
+
                 // Parse/Inspect packet copy before forwarding
                 byte[] copy = (byte[])packet.Clone();
                 ushort packetSize = (ushort)((copy[0] << 8) | copy[1]);
@@ -159,6 +167,10 @@ namespace PkoProxyClient
                         uint ip = pktReader.ReadUint32();
                         ushort flag = pktReader.ReadUint16();
                         ushort versionVal = pktReader.ReadUint16();
+
+                        StringBuilder pwdHex = new StringBuilder();
+                        foreach (byte b in pwdBytes) pwdHex.Append($"{b:X2} ");
+                        LogConsole($"[Connection #{connId}] Captured pwdBytes ({pwdBytes.Length} bytes): {pwdHex}");
 
                         lock (state)
                         {
@@ -198,6 +210,14 @@ namespace PkoProxyClient
                     await clientStream.WriteAsync(packet, 0, packet.Length, cancellationToken);
                     continue;
                 }
+
+                // Log raw ciphertext header/ID bytes for diagnosis
+                StringBuilder rawHex = new StringBuilder();
+                for (int i = 0; i < Math.Min(16, packet.Length); i++)
+                {
+                    rawHex.Append($"{packet[i]:X2} ");
+                }
+                LogConsole($"[Connection #{connId}] [Raw S->C Ciphertext] Size: {packet.Length} | Bytes: {rawHex}");
 
                 // Parse/Inspect packet copy before forwarding
                 byte[] copy = (byte[])packet.Clone();
@@ -260,7 +280,9 @@ namespace PkoProxyClient
                             uint commEncryptionVal = pktReader.ReadUint32();
                             bool commEncryption = commEncryptionVal != 0;
 
-                            LogConsole($"[Connection #{connId}] [S->C Crypto Handshake] CommEncryption: {commEncryption}, Key Length: {keyLen}");
+                            StringBuilder keyHex = new StringBuilder();
+                            foreach (byte b in encryptionKey) keyHex.Append($"{b:X2} ");
+                            LogConsole($"[Connection #{connId}] [S->C Crypto Handshake] CommEncryption: {commEncryption}, Key ({encryptionKey.Length} bytes): {keyHex}");
 
                             if (commEncryption)
                             {

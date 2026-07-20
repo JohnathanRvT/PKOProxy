@@ -11,6 +11,34 @@ namespace PkoProxyClient
 
             try
             {
+                // Custom test for B decrypted
+                byte[] data = new byte[] {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+                byte[] keyB = new byte[] {0x99, 0x3a, 0x3c, 0x7b, 0x27, 0xb1};
+                PacketEncoder.encrypt_B(data, keyB, false);
+
+                Console.Write("C# B decrypted: ");
+                foreach (byte b in data)
+                {
+                    Console.Write($"{b:x2} ");
+                }
+                Console.WriteLine();
+
+                // Custom test to compare with C++ decrypted value
+                byte[] cppKey = new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+                byte[] cppPwd = new byte[23];
+                byte[] pwdChars = Encoding.ASCII.GetBytes("chap12345chap678901234");
+                Array.Copy(pwdChars, cppPwd, 22);
+
+                byte[] outBytes = new byte[8];
+                PkoDes.RunDes(PkoDes.DECRYPT, PkoDes.ECB, cppKey, outBytes, cppPwd);
+
+                Console.Write("C# decrypted: ");
+                foreach (byte b in outBytes)
+                {
+                    Console.Write($"{b:x2} ");
+                }
+                Console.WriteLine();
+
                 // Test 1: DES Pad and Single Key ECB Encrypt/Decrypt
                 byte[] plaintext = Encoding.ASCII.GetBytes("HelloPKOWorld!");
                 byte[] key = Encoding.ASCII.GetBytes("mypassword123"); // 13 bytes, nKey = 1
