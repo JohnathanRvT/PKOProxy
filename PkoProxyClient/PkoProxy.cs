@@ -17,8 +17,34 @@ namespace PkoProxyClient
         public string PlaintextPassword { get; set; } = "";
     }
 
+    public class ProxyPacketContext
+    {
+        public int ConnectionId { get; }
+        public string Direction { get; } // "C -> S" or "S -> C"
+        public ushort PacketId { get; set; }
+        public uint Session { get; set; }
+        public byte[] DecryptedPacket { get; set; }
+        public bool IsDropped { get; set; } = false;
+
+        public ProxyPacketContext(int connectionId, string direction, ushort packetId, uint session, byte[] decryptedPacket)
+        {
+            ConnectionId = connectionId;
+            Direction = direction;
+            PacketId = packetId;
+            Session = session;
+            DecryptedPacket = decryptedPacket;
+        }
+    }
+
+    public interface IProxyPlugin
+    {
+        void OnPacket(ProxyPacketContext context);
+    }
+
     public class PkoProxy
     {
+        public static readonly System.Collections.Generic.List<IProxyPlugin> Plugins = new System.Collections.Generic.List<IProxyPlugin>();
+
         private readonly int _localPort;
         private readonly string _remoteHost;
         private readonly int _remotePort;
@@ -193,10 +219,41 @@ namespace PkoProxyClient
                     }
                 }
 
+                // Run plugins
+                var context = new ProxyPacketContext(connId, "C -> S", packetId, session, copy);
+                foreach (var plugin in Plugins)
+                {
+                    try { plugin.OnPacket(context); } catch { }
+                }
+
+                if (context.IsDropped)
+                {
+                    LogConsole($"[Connection #{connId}] C -> S | Packet ID: {packetId} DROPPED by plugin.");
+                    continue;
+                }
+
+                bool wasModified = !ByteArrayCompare(context.DecryptedPacket, copy);
+                if (wasModified)
+                {
+                    copy = context.DecryptedPacket;
+                    ushort newSize = (ushort)copy.Length;
+                    copy[0] = (byte)(newSize >> 8);
+                    copy[1] = (byte)(newSize & 0xFF);
+
+                    packet = (byte[])copy.Clone();
+                    if (encryptor.Enabled)
+                    {
+                        byte[] payload = new byte[packet.Length - 6];
+                        Array.Copy(packet, 6, payload, 0, payload.Length);
+                        encryptor.Encrypt(payload, EncryptType.CS);
+                        Array.Copy(payload, 0, packet, 6, payload.Length);
+                    }
+                }
+
                 // Log decrypted packet
                 LogPacketDump("C -> S", connId, packetId, session, copy);
 
-                // Forward unmodified packet to server
+                // Forward packet to server
                 await serverStream.WriteAsync(packet, 0, packet.Length, cancellationToken);
             }
         }
@@ -335,10 +392,41 @@ namespace PkoProxyClient
                     }
                 }
 
+                // Run plugins
+                var context = new ProxyPacketContext(connId, "S -> C", packetId, session, copy);
+                foreach (var plugin in Plugins)
+                {
+                    try { plugin.OnPacket(context); } catch { }
+                }
+
+                if (context.IsDropped)
+                {
+                    LogConsole($"[Connection #{connId}] S -> C | Packet ID: {packetId} DROPPED by plugin.");
+                    continue;
+                }
+
+                bool wasModified = !ByteArrayCompare(context.DecryptedPacket, copy);
+                if (wasModified)
+                {
+                    copy = context.DecryptedPacket;
+                    ushort newSize = (ushort)copy.Length;
+                    copy[0] = (byte)(newSize >> 8);
+                    copy[1] = (byte)(newSize & 0xFF);
+
+                    packet = (byte[])copy.Clone();
+                    if (encryptor.Enabled && packetId != 931)
+                    {
+                        byte[] payload = new byte[packet.Length - 6];
+                        Array.Copy(packet, 6, payload, 0, payload.Length);
+                        encryptor.Encrypt(payload, EncryptType.SC);
+                        Array.Copy(payload, 0, packet, 6, payload.Length);
+                    }
+                }
+
                 // Log decrypted packet
                 LogPacketDump("S -> C", connId, packetId, session, copy);
 
-                // Forward unmodified packet to client
+                // Forward packet to client
                 await clientStream.WriteAsync(packet, 0, packet.Length, cancellationToken);
             }
         }
@@ -395,6 +483,43 @@ namespace PkoProxyClient
                 }
             }
             catch { }
+
+            // Write structured binary dump for ImHex
+            try
+            {
+                byte dirVal = direction == "C -> S" ? (byte)0 : (byte)1;
+                byte[] connBytes = BitConverter.GetBytes(connId);
+                byte[] ticksBytes = BitConverter.GetBytes(DateTime.Now.Ticks);
+                byte[] lenBytes = BitConverter.GetBytes((ushort)decryptedPacket.Length);
+                if (BitConverter.IsLittleEndian)
+                {
+                    Array.Reverse(lenBytes);
+                }
+
+                string binPath = Path.ChangeExtension(_logFilePath, ".bin");
+                lock (binPath)
+                {
+                    using (var fs = new FileStream(binPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                    {
+                        fs.WriteByte(0xAA); // Magic separator
+                        fs.WriteByte(dirVal);
+                        fs.Write(connBytes, 0, 4);
+                        fs.Write(ticksBytes, 0, 8);
+                        fs.Write(lenBytes, 0, 2);
+                        fs.Write(decryptedPacket, 0, decryptedPacket.Length);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static bool ByteArrayCompare(byte[] a1, byte[] a2)
+        {
+            if (a1 == null || a2 == null) return ReferenceEquals(a1, a2);
+            if (a1.Length != a2.Length) return false;
+            for (int i = 0; i < a1.Length; i++)
+                if (a1[i] != a2[i]) return false;
+            return true;
         }
 
         public static string HexDump(byte[] bytes, int bytesPerLine = 16)
